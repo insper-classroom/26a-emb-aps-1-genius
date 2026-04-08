@@ -8,7 +8,7 @@ static const uint PINOS_LEDS[NUM_LEDS] = {
     LED_AMARELO
 };
 
-void leds_init(void) {
+void leds_init() {
     for (int i = 0; i < NUM_LEDS; i++) {
         gpio_init(PINOS_LEDS[i]);
         gpio_set_dir(PINOS_LEDS[i], GPIO_OUT);
@@ -28,7 +28,7 @@ void led_apagar(uint indice) {
     }
 }
 
-void led_apagar_todos(void) {
+void led_apagar_todos() {
     for (int i = 0; i < NUM_LEDS; i++) {
         gpio_put(PINOS_LEDS[i], 0);
     }
