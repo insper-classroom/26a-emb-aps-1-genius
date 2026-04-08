@@ -1,83 +1,172 @@
 #include "audio.h"
+#include "audio_musica.h"
 #include "hardware/pwm.h"
+#include "hardware/irq.h"
 #include "hardware/clocks.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 
-/* Frequências (Hz) associadas a cada botão */
-static const uint FREQ_NOTAS[4] = {262, 330, 392, 523};
+/* ---------- configuracao WAV ---------- */
+#define PWM_CLKDIV   8.0f
+#define PWM_WRAP     250
+#define SAMPLE_RATE  8000
+#define ISR_RATE     88000u   /* 176MHz / (8 * 250) */
+#define SKIP         ((uint32_t)(ISR_RATE / SAMPLE_RATE))  /* ~11 */
 
-/* Duração de cada tipo de som em ms */
+/* duty fixo para volume uniforme entre todas as notas */
+#define DUTY_FIXO    80u
+
+/* ---------- frequencias dos efeitos ---------- */
+static const uint FREQ_NOTAS[4] = {262, 330, 392, 494};
+
 #define DURACAO_NOTA_MS    400
 #define DURACAO_ERRO_MS    600
 #define DURACAO_VITORIA_MS 150
 
-/* Estado interno — acessado apenas pelo Core 1, sem necessidade de volatile */
+/*
+ * Variaveis globais acessadas pela ISR — obrigatorio volatile (Rule 1.2)
+ * Apenas as modificadas na ISR sao globais (Rule 1.1 / 1.3)
+ */
+static volatile uint32_t _pos_bg      = 0;
+static volatile uint32_t _isr_counter = 0;
+static volatile bool     _bg_ativo    = false;
+static volatile bool     _efeito_ativo = false;
+
+/* _slice nao e modificado na ISR — pode ser local a _init_pwm_wav,
+   mas precisamos dele em _set_frequencia_simples e _restaurar_pwm_wav.
+   Solucao: armazena como static local de audio_init e passa via parametro
+   — mais simples: mantemos como static de modulo SEM volatile pois a ISR
+   so le, nunca escreve. cppcheck aceita isso. */
 static int _slice = 0;
 
+/* ---------- ISR do PWM ---------- */
+static void _pwm_isr(void) {
+    pwm_clear_irq(_slice);
+
+    if (!_bg_ativo || _efeito_ativo) {
+        pwm_set_gpio_level(AUDIO_PIN, 0);
+        return;
+    }
+
+    _isr_counter++;
+    if (_isr_counter < SKIP) return;
+    _isr_counter = 0;
+
+    if (_pos_bg >= WAV_DATA_MUSICA_LENGTH) {
+        _pos_bg = 0;
+    }
+    pwm_set_gpio_level(AUDIO_PIN, WAV_DATA_MUSICA[_pos_bg]);
+    _pos_bg++;
+}
+
 /* ---------- helpers internos ---------- */
-
-static void _set_frequencia(uint freq_hz) {
-    uint sys_hz = clock_get_hz(clk_sys);
-    uint wrap   = sys_hz / freq_hz - 1;
-    pwm_set_wrap(_slice, wrap);
-    pwm_set_gpio_level(AUDIO_PIN, wrap / 2);  /* duty 50% */
-}
-
-static void _parar_pwm(void) {
-    pwm_set_gpio_level(AUDIO_PIN, 0);
-}
-
-/* ---------- API pública ---------- */
-
-void audio_init(void) {
+static void _init_pwm_wav(void) {
     gpio_set_function(AUDIO_PIN, GPIO_FUNC_PWM);
-    _slice = pwm_gpio_to_slice_num(AUDIO_PIN);
+    _slice = (int)pwm_gpio_to_slice_num(AUDIO_PIN);
+
+    pwm_clear_irq((uint)_slice);
+    pwm_set_irq_enabled((uint)_slice, true);
+    irq_set_exclusive_handler(PWM_IRQ_WRAP, _pwm_isr);
+    irq_set_enabled(PWM_IRQ_WRAP, true);
 
     pwm_config cfg = pwm_get_default_config();
-    pwm_init(_slice, &cfg, true);
+    pwm_config_set_clkdiv(&cfg, PWM_CLKDIV);
+    pwm_config_set_wrap(&cfg, PWM_WRAP);
+    pwm_init((uint)_slice, &cfg, true);
     pwm_set_gpio_level(AUDIO_PIN, 0);
 }
 
-/*
- * Todas as funções abaixo são chamadas pelo Core 1.
- * Ao terminar, enviam CMD_PRONTO via FIFO para desbloquear o Core 0.
- */
+static void _set_frequencia_simples(uint freq_hz) {
+    irq_set_enabled(PWM_IRQ_WRAP, false);
+    pwm_set_irq_enabled((uint)_slice, false);
+
+    uint sys_hz = clock_get_hz(clk_sys);
+    uint wrap   = sys_hz / freq_hz - 1u;
+    pwm_set_wrap((uint)_slice, wrap);
+    pwm_set_gpio_level(AUDIO_PIN, DUTY_FIXO);  /* duty fixo = volume uniforme */
+}
+
+static void _restaurar_pwm_wav(void) {
+    pwm_set_wrap((uint)_slice, PWM_WRAP);
+    pwm_set_gpio_level(AUDIO_PIN, 0);
+    pwm_clear_irq((uint)_slice);
+    pwm_set_irq_enabled((uint)_slice, true);
+    irq_set_enabled(PWM_IRQ_WRAP, true);
+}
+
+/* ---------- API publica (chamada pelo Core 1) ---------- */
+
+void audio_init(void) {
+    _init_pwm_wav();
+}
+
+void audio_bg_ligar(void) {
+    _bg_ativo     = true;
+    _efeito_ativo = false;
+}
+
+void audio_bg_desligar(void) {
+    _bg_ativo     = false;
+    _efeito_ativo = false;
+    pwm_set_gpio_level(AUDIO_PIN, 0);
+}
 
 void audio_tocar_nota(uint indice_botao) {
-    if (indice_botao >= 4) {
+    if (indice_botao >= 4u) {
         multicore_fifo_push_blocking(CMD_PRONTO);
         return;
     }
-    _set_frequencia(FREQ_NOTAS[indice_botao]);
+
+    _efeito_ativo = true;
+    _set_frequencia_simples(FREQ_NOTAS[indice_botao]);
     sleep_ms(DURACAO_NOTA_MS);
-    _parar_pwm();
+    pwm_set_gpio_level(AUDIO_PIN, 0);
+    _restaurar_pwm_wav();
+    _efeito_ativo = false;
+
     multicore_fifo_push_blocking(CMD_PRONTO);
 }
 
 void audio_tocar_erro(void) {
-    /* Dois bipes graves descendentes */
-    for (int i = 0; i < 2; i++) {
-        _set_frequencia(180 - (uint)(i * 40));
-        sleep_ms(DURACAO_ERRO_MS / 2);
-        _parar_pwm();
+    uint freqs[2] = {180u, 140u};
+    int i;
+
+    _efeito_ativo = true;
+
+    for (i = 0; i < 2; i++) {
+        _set_frequencia_simples(freqs[i]);
+        sleep_ms(DURACAO_ERRO_MS / 2u);
+        pwm_set_gpio_level(AUDIO_PIN, 0);
         sleep_ms(80);
     }
+
+    _restaurar_pwm_wav();
+    _efeito_ativo = false;
+
     multicore_fifo_push_blocking(CMD_PRONTO);
 }
 
 void audio_tocar_vitoria(void) {
-    /* Melodia ascendente rápida */
-    static const uint vitoria[5] = {262, 330, 392, 523, 659};
-    for (int i = 0; i < 5; i++) {
-        _set_frequencia(vitoria[i]);
+    static const uint vitoria[5] = {262u, 330u, 392u, 523u, 659u};
+    int i;
+
+    _efeito_ativo = true;
+
+    for (i = 0; i < 5; i++) {
+        _set_frequencia_simples(vitoria[i]);
         sleep_ms(DURACAO_VITORIA_MS);
-        _parar_pwm();
+        pwm_set_gpio_level(AUDIO_PIN, 0);
         sleep_ms(40);
     }
+
+    _restaurar_pwm_wav();
+    _efeito_ativo = false;
+
     multicore_fifo_push_blocking(CMD_PRONTO);
 }
 
 void audio_parar(void) {
-    _parar_pwm();
+    _bg_ativo     = false;
+    _efeito_ativo = false;
+    pwm_set_gpio_level(AUDIO_PIN, 0);
 }

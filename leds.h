@@ -4,10 +4,10 @@
 #include "pico/stdlib.h"
 
 /* GPIOs dos LEDs — ordem igual à dos botões */
-#define LED_VERDE    11
-#define LED_VERMELHO 12
-#define LED_AZUL     13
-#define LED_AMARELO  14
+#define LED_VERDE    20
+#define LED_VERMELHO 21
+#define LED_AZUL     18
+#define LED_AMARELO  19
 
 #define NUM_LEDS 4
 
