@@ -10,15 +10,14 @@
 #include "buttons.h"
 #include "game.h"
 
-/* ------------------------------------------------------------------ */
-/*  Core 1 — audio                                                      */
-/*                                                                      */
-/*  Protocolo FIFO:                                                     */
-/*    Core 0 -> Core 1 : CMD_NOTA_x | CMD_ERRO | CMD_VITORIA           */
-/*                       CMD_BG_ON  | CMD_BG_OFF                       */
-/*    Core 1 -> Core 0 : CMD_PRONTO (ao concluir efeito)               */
-/* ------------------------------------------------------------------ */
-static void core1_audio_task(void) {
+//  Core 1 — audio                                                      
+//                                                                      
+//  Protocolo FIFO:                                                     
+//    Core 0 -> Core 1 : CMD_NOTA_x | CMD_ERRO | CMD_VITORIA           
+//                       CMD_BG_ON  | CMD_BG_OFF                       
+//    Core 1 -> Core 0 : CMD_PRONTO (ao concluir efeito)               
+
+static void core1_audio_task() {
     audio_init();
 
     while (true) {
@@ -38,18 +37,17 @@ static void core1_audio_task(void) {
     }
 }
 
-
 static void tocar_nota_sincronizado(uint indice) {
     multicore_fifo_push_blocking((uint32_t)indice);
     multicore_fifo_pop_blocking();
 }
 
-static void tocar_erro_sincronizado(void) {
+static void tocar_erro_sincronizado() {
     multicore_fifo_push_blocking(CMD_ERRO);
     multicore_fifo_pop_blocking();
 }
 
-static void tocar_vitoria_sincronizado(void) {
+static void tocar_vitoria_sincronizado() {
     multicore_fifo_push_blocking(CMD_VITORIA);
     multicore_fifo_pop_blocking();
 }
@@ -75,11 +73,10 @@ static void exibir_pontuacao_leds(int pontuacao) {
 /* ------------------------------------------------------------------ */
 /*  Core 0 — logica do jogo                                            */
 /* ------------------------------------------------------------------ */
-int main(void) {
-    /* clock 176 MHz necessario para o PWM de audio WAV */
+int main() {
+    // clock 176 MHz necessario para o PWM de audio WAV
     set_sys_clock_khz(176000, true);
     stdio_init_all();
-
 
     adc_init();
     adc_gpio_init(26);
@@ -103,7 +100,7 @@ novo_jogo:
 
     printf("=== GENIUS iniciado (seed=%lu) ===\n", (unsigned long)seed);
 
-    /* animacao de inicio */
+    // animacao de inicio
     {
         int i;
         for (i = 0; i < NUM_LEDS; i++) {
@@ -119,7 +116,6 @@ novo_jogo:
         int pos;
         bool erro;
 
-
         jogo.estado = ESTADO_MOSTRAR;
         printf("Nivel %d | Pontuacao: %d\n", jogo.nivel, jogo.pontuacao);
 
@@ -127,11 +123,10 @@ novo_jogo:
         for (i = 0; i < jogo.nivel; i++) {
             int btn_seq = jogo.sequencia[i];
 
-            //verifica se jogador pressionou algo durante a sequencia (toggle BG) 
+            //verifica se jogador pressionou algo durante a sequencia (toggle BG)
             {
                 int pressionado = buttons_ler();
                 if (pressionado != -1) {
-                    /* qualquer botao durante a exibicao togla a musica */
                     static bool bg_ligado = true;
                     bg_ligado = !bg_ligado;
                     if (bg_ligado) {
@@ -153,16 +148,23 @@ novo_jogo:
         erro = false;
 
         while (pos < jogo.nivel && !erro) {
-            int btn = buttons_aguardar();
+            // timeout de 5 segundos por botao
+            int btn = buttons_aguardar_timeout(5000);
 
-            led_acender((uint)btn);
-            tocar_nota_sincronizado((uint)btn);
-            led_apagar((uint)btn);
-
-            if (btn != jogo.sequencia[pos]) {
+            if (btn == -1) {
+                // timeout — trata como erro
                 erro = true;
+                printf("TIMEOUT!\n");
             } else {
-                pos++;
+                led_acender((uint)btn);
+                tocar_nota_sincronizado((uint)btn);
+                led_apagar((uint)btn);
+
+                if (btn != jogo.sequencia[pos]) {
+                    erro = true;
+                } else {
+                    pos++;
+                }
             }
         }
 
