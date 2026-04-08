@@ -4,14 +4,12 @@
 
 static const uint PINOS_BOTOES[NUM_BOTOES] = {BTN_0, BTN_1, BTN_2, BTN_3};
 
-/* Variaveis globais da ISR — volatile obrigatorio (Rule 1.2) */
-static volatile int              _flag_botao[NUM_BOTOES] = {0, 0, 0, 0};
+static volatile int _flag_botao[NUM_BOTOES] = {0, 0, 0, 0};
 static volatile absolute_time_t  _ultimo_press[NUM_BOTOES];
 
 static void _gpio_isr(uint gpio, uint32_t events) {
     absolute_time_t agora = get_absolute_time();
     uint i;
-
     if (!(events & GPIO_IRQ_EDGE_FALL)) return;
 
     for (i = 0; i < NUM_BOTOES; i++) {

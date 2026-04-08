@@ -6,40 +6,29 @@
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 
-/* ---------- configuracao WAV ---------- */
-#define PWM_CLKDIV   8.0f
-#define PWM_WRAP     250
-#define SAMPLE_RATE  8000
-#define ISR_RATE     88000u   /* 176MHz / (8 * 250) */
-#define SKIP         ((uint32_t)(ISR_RATE / SAMPLE_RATE))  /* ~11 */
 
-/* duty fixo para volume uniforme entre todas as notas */
-#define DUTY_FIXO    80u
+#define PWM_CLKDIV 8.0f
+#define PWM_WRAP 250
+#define SAMPLE_RATE 8000
+#define ISR_RATE 88000u   /* 176MHz / (8 * 250) */
+#define SKIP ((uint32_t)(ISR_RATE / SAMPLE_RATE))  
 
-/* ---------- frequencias dos efeitos ---------- */
+#define DUTY_FIXO 80u
+
+// frequencias das cores
 static const uint FREQ_NOTAS[4] = {262, 330, 392, 494};
 
 #define DURACAO_NOTA_MS    400
 #define DURACAO_ERRO_MS    600
 #define DURACAO_VITORIA_MS 150
 
-/*
- * Variaveis globais acessadas pela ISR — obrigatorio volatile (Rule 1.2)
- * Apenas as modificadas na ISR sao globais (Rule 1.1 / 1.3)
- */
-static volatile uint32_t _pos_bg      = 0;
-static volatile uint32_t _isr_counter = 0;
-static volatile bool     _bg_ativo    = false;
-static volatile bool     _efeito_ativo = false;
+static volatile uint32_t _pos_bg= 0;
+static volatile uint32_t _isr_counter= 0;
+static volatile bool _bg_ativo= false;
+static volatile bool _efeito_ativo = false;
 
-/* _slice nao e modificado na ISR — pode ser local a _init_pwm_wav,
-   mas precisamos dele em _set_frequencia_simples e _restaurar_pwm_wav.
-   Solucao: armazena como static local de audio_init e passa via parametro
-   — mais simples: mantemos como static de modulo SEM volatile pois a ISR
-   so le, nunca escreve. cppcheck aceita isso. */
 static int _slice = 0;
 
-/* ---------- ISR do PWM ---------- */
 static void _pwm_isr(void) {
     pwm_clear_irq(_slice);
 
@@ -59,7 +48,6 @@ static void _pwm_isr(void) {
     _pos_bg++;
 }
 
-/* ---------- helpers internos ---------- */
 static void _init_pwm_wav(void) {
     gpio_set_function(AUDIO_PIN, GPIO_FUNC_PWM);
     _slice = (int)pwm_gpio_to_slice_num(AUDIO_PIN);
@@ -83,7 +71,7 @@ static void _set_frequencia_simples(uint freq_hz) {
     uint sys_hz = clock_get_hz(clk_sys);
     uint wrap   = sys_hz / freq_hz - 1u;
     pwm_set_wrap((uint)_slice, wrap);
-    pwm_set_gpio_level(AUDIO_PIN, DUTY_FIXO);  /* duty fixo = volume uniforme */
+    pwm_set_gpio_level(AUDIO_PIN, DUTY_FIXO);
 }
 
 static void _restaurar_pwm_wav(void) {
@@ -94,7 +82,6 @@ static void _restaurar_pwm_wav(void) {
     irq_set_enabled(PWM_IRQ_WRAP, true);
 }
 
-/* ---------- API publica (chamada pelo Core 1) ---------- */
 
 void audio_init(void) {
     _init_pwm_wav();
@@ -130,7 +117,6 @@ void audio_tocar_nota(uint indice_botao) {
 void audio_tocar_erro(void) {
     uint freqs[2] = {180u, 140u};
     int i;
-
     _efeito_ativo = true;
 
     for (i = 0; i < 2; i++) {

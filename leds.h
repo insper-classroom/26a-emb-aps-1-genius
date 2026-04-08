@@ -3,7 +3,7 @@
 
 #include "pico/stdlib.h"
 
-/* GPIOs dos LEDs — ordem igual à dos botões */
+//ordem igual à dos botões 
 #define LED_VERDE    20
 #define LED_VERMELHO 21
 #define LED_AZUL     18

@@ -3,10 +3,10 @@
 
 #include "pico/stdlib.h"
 
-#define BTN_0 3   /* VERDE    */
-#define BTN_1 2   /* VERMELHO */
-#define BTN_2 5   /* AZUL     */
-#define BTN_3 4   /* AMARELO  */
+#define BTN_0 3   //Verde
+#define BTN_1 2   //Vermelho
+#define BTN_2 5   //azul
+#define BTN_3 4   //amarelo
 
 #define NUM_BOTOES  4
 #define DEBOUNCE_US 200000

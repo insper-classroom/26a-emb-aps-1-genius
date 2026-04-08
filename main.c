@@ -38,9 +38,7 @@ static void core1_audio_task(void) {
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Helpers Core 0                                                      */
-/* ------------------------------------------------------------------ */
+
 static void tocar_nota_sincronizado(uint indice) {
     multicore_fifo_push_blocking((uint32_t)indice);
     multicore_fifo_pop_blocking();
@@ -56,12 +54,6 @@ static void tocar_vitoria_sincronizado(void) {
     multicore_fifo_pop_blocking();
 }
 
-/*
- * Exibe pontuacao piscando os LEDs:
- * Cada grupo de 4 = pisca todos juntos uma vez
- * Resto = pisca LEDs individuais em sequencia
- * Ex: pontuacao 6 -> 1 piscada geral + 2 individuais
- */
 static void exibir_pontuacao_leds(int pontuacao) {
     int grupos = pontuacao / NUM_LEDS;
     int resto  = pontuacao % NUM_LEDS;
@@ -88,11 +80,7 @@ int main(void) {
     set_sys_clock_khz(176000, true);
     stdio_init_all();
 
-    /*
-     * Seed pseudoaleatoria:
-     * Pino ADC flutuante (ruido analogico) XOR tempo de boot
-     * Seed diferente a cada energizacao — atende requisito do srand()
-     */
+
     adc_init();
     adc_gpio_init(26);
     adc_select_input(0);
@@ -105,7 +93,6 @@ int main(void) {
 
     multicore_launch_core1(core1_audio_task);
 
-    /* inicia musica de fundo */
     multicore_fifo_push_blocking(CMD_BG_ON);
 
     jogo_t jogo;
@@ -132,9 +119,7 @@ novo_jogo:
         int pos;
         bool erro;
 
-        /* --- mostra sequencia ---
-         * Durante esta fase, qualquer botao pressionado togla a musica
-         */
+
         jogo.estado = ESTADO_MOSTRAR;
         printf("Nivel %d | Pontuacao: %d\n", jogo.nivel, jogo.pontuacao);
 
@@ -142,7 +127,7 @@ novo_jogo:
         for (i = 0; i < jogo.nivel; i++) {
             int btn_seq = jogo.sequencia[i];
 
-            /* verifica se jogador pressionou algo durante a sequencia (toggle BG) */
+            //verifica se jogador pressionou algo durante a sequencia (toggle BG) 
             {
                 int pressionado = buttons_ler();
                 if (pressionado != -1) {
@@ -163,7 +148,6 @@ novo_jogo:
             sleep_ms(200);
         }
 
-        /* --- coleta entrada do jogador --- */
         jogo.estado = ESTADO_ENTRADA;
         pos  = 0;
         erro = false;
@@ -182,7 +166,7 @@ novo_jogo:
             }
         }
 
-        /* --- avalia resultado --- */
+        //avalia resultado
         if (erro) {
             jogo.estado = ESTADO_ERRO;
             printf("ERRO! Pontuacao final: %d\n", jogo.pontuacao);
@@ -195,7 +179,7 @@ novo_jogo:
             goto novo_jogo;
         }
 
-        /* acertou o nivel */
+        //acertou o nivel
         jogo.pontuacao++;
         jogo.estado = ESTADO_ACERTO;
         printf("Acertou nivel %d!\n", jogo.nivel);

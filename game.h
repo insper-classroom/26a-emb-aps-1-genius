@@ -16,7 +16,7 @@ typedef enum {
 
 typedef struct {
     int sequencia[MAX_SEQUENCIA];
-    int nivel;          /* posição atual na sequência (1-based) */
+    int nivel;          
     int pontuacao;
     estado_jogo_t estado;
 } jogo_t;
